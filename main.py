@@ -7,10 +7,9 @@ app = FastAPI()
 
 TOKEN = os.getenv("TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-GROK_KEY = os.getenv("GROK_KEY")  # tu gardes ta clé Grok
+GROK_KEY = os.getenv("GROK_KEY")
 
 last_used = {}
-
 DISCLAIMER = "\n\nLafiyaBot ba likita ba ne · Bayani ne kawai · Idan kana jin ciwo mai tsanani, JE ASIBITI NAN TAKE"
 
 async def ask_grok(text: str) -> str:
@@ -20,18 +19,20 @@ async def ask_grok(text: str) -> str:
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROK_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": "grok-3",
+                    "model": "grok-3",  # Modèle gratuit stable
                     "messages": [
-                        {"role": "system", "content": "Ka amsa a harshen Hausa na Kano da kyau, a takaice, da ladabi."},
+                        {"role": "system", "content": "Ka amsa a harshen Hausa na Kano da kyau, a takaice, da ladabi. Ka ƙara da cewa su je asibiti idan sun ji ciwo mai tsanani."},
                         {"role": "user", "content": text}
                     ],
-                    "temperature": 0.7
+                    "temperature": 0.7,
+                    "max_tokens": 300
                 }
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
-        except:
-            return "Na ji tambayarka, za mu ba ka amsa nan take."
+        except Exception as e:
+            print(f"Erreur Grok: {e}")  # Log pour debug (regarde Railway logs)
+            return "Na ji tambayarka, amma na sami matsala a sadarwa. Za mu gyara nan take. A lokacin nan, idan kana jin ciwo, je asibiti kai tsaye."
 
 @app.get("/webhook")
 async def verify(r: Request):
@@ -42,15 +43,18 @@ async def verify(r: Request):
 @app.post("/webhook")
 async def receive(r: Request):
     data = await r.json()
-    print("Message →", data)
+    print("Webhook reçu →", data)
     try:
         for msg in data.get("entry",[{}])[0].get("changes",[{}])[0].get("value",{}).get("messages",[]):
             sender = msg["from"]
             text = msg["text"]["body"]
-            if sender in last_used and time.time() - last_used[sender] < 30: continue
-            last_used[sender] = time.time()
+            now = time.time()
+            if sender in last_used and now - last_used[sender] < 30: continue
+            last_used[sender] = now
 
             reply = await ask_grok(text)
+            reply += DISCLAIMER
+
             httpx.post(
                 f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages",
                 headers={"Authorization": f"Bearer {TOKEN}"},
@@ -58,9 +62,9 @@ async def receive(r: Request):
                     "messaging_product": "whatsapp",
                     "to": sender,
                     "type": "text",
-                    "text": {"body": reply + DISCLAIMER}
+                    "text": {"body": reply}
                 }
             )
     except Exception as e:
-        print("Erreur:", e)
-    return {"status":"ok"}
+        print("Erreur webhook :", e)
+    return {"status": "ok"}
