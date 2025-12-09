@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 import httpx
 import time
-import base64
+import os          # ← cette ligne manquait !!
 
 app = FastAPI()
 
@@ -15,7 +15,7 @@ DISCLAIMER = "\n\nLafiyaBot ba likita ba ne · Bayani ne kawai · Idan kana jin 
 async def google_voice_hausa(text: str) -> str | None:
     try:
         payload = {
-            "input": {"text": text},
+            "input": {"text": text + ". Lafiya lau."},
             "voice": {"languageCode": "ha-NG", "name": "ha-NG-Standard-A"},
             "audioConfig": {"audioEncoding": "MP3"}
         }
@@ -33,8 +33,8 @@ async def google_voice_hausa(text: str) -> str | None:
                 )
                 url = upload.json()["data"]["url"]
                 return url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-    except:
-        pass
+    except Exception as e:
+        print("Erreur voix:", e)
     return None
 
 async def ask_grok(text: str) -> str:
@@ -51,7 +51,7 @@ async def ask_grok(text: str) -> str:
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
         except:
-            return "Na ji tambayarka, za mu ba ka bayani nan take."
+            return "Na ji tambayarka, za mu ba ka amsa nan take."
 
 @app.get("/webhook")
 async def verify(r: Request):
@@ -73,14 +73,12 @@ async def receive(r: Request):
             reply = await ask_grok(text)
             voice_url = await google_voice_hausa(reply)
 
-            # 1. Vocal (priorité)
             if voice_url:
                 httpx.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages",
                     headers={"Authorization": f"Bearer {TOKEN}"},
                     json={"messaging_product":"whatsapp","to":sender,"type":"audio","audio":{"link":voice_url}}
                 )
 
-            # 2. Texte
             httpx.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages",
                 headers={"Authorization": f"Bearer {TOKEN}"},
                 json={"messaging_product":"whatsapp","to":sender,"type":"text","text":{"body":reply+DISCLAIMER}}
