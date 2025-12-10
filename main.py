@@ -9,21 +9,24 @@ TOKEN = os.getenv("TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 GROK_KEY = os.getenv("GROK_KEY")
 
-# Mémoire de la langue choisie par utilisateur (WhatsApp ID → langue)
+# Mémoire de la langue de chaque utilisateur (WhatsApp ID → langue)
 user_language = {}
 
+# Disclaimer par langue
 DISCLAIMER = {
-    "fr": "\n\nLafiyaBot n’est pas un médecin. Information générale uniquement. Consultez un médecin en cas de douleur grave.",
-    "en": "\n\nLafiyaBot is not a doctor. General information only. See a doctor if you have severe pain.",
+    "fr": "\n\nLafiyaBot n’est pas un médecin · Information générale uniquement · Consultez un médecin en cas de douleur grave.",
+    "en": "\n\nLafiyaBot is not a doctor · General information only · See a doctor if you have severe pain.",
     "ha": "\n\nLafiyaBot ba likita ba ne · Bayani ne kawai · Idan kana jin ciwo mai tsanani, JE ASIBITI NAN TAKE"
 }
 
+# Prompts Grok par langue
 PROMPTS = {
     "fr": "Réponds en français clair, poli et simple. Utilise un ton rassurant.",
     "en": "Answer in clear, polite and simple English. Use a reassuring tone.",
     "ha": "Ka amsa a harshen Hausa na Kano da kyau, a takaice, da ladabi."
 }
 
+# Menu de bienvenue
 WELCOME_MENU = """Sannu ! Bienvenue ! Welcome ! 😊
 
 Choisissez votre langue / Zaɓi harshenku / Choose your language:
@@ -32,8 +35,9 @@ Choisissez votre langue / Zaɓi harshenku / Choose your language:
 🇬🇧 Tapez *2* pour English
 🇳🇪 Tapez *3* pour Hausa
 
-Za mu amsa nan take! / Nous répondons tout de suite ! / We answer right away!"""
+(ou tapez 1, 2, 3 à tout moment pour changer de langue)"""
 
+# Fonction Grok
 async def ask_grok(text: str, langue: str) -> str:
     async with httpx.AsyncClient(timeout=40) as client:
         try:
@@ -46,13 +50,15 @@ async def ask_grok(text: str, langue: str) -> str:
                         {"role": "system", "content": PROMPTS[langue]},
                         {"role": "user", "content": text}
                     ],
-                    "temperature": 0.7
+                    "temperature": 0.7,
+                    "max_tokens": 350
                 }
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
-        except:
-            return {"fr": "Je n’ai pas pu répondre, réessayez.", "en": "I couldn’t answer, try again.", "ha": "Na kasa amsawa, sake gwadawa."}[langue]
+        except Exception as e:
+            print("Erreur Grok:", e)
+            return {"fr": "Je n’ai pas pu répondre.", "en": "I couldn’t answer.", "ha": "Na kasa amsawa."}[langue]
 
 @app.get("/webhook")
 async def verify(r: Request):
@@ -67,45 +73,52 @@ async def receive(r: Request):
     try:
         for msg in data.get("entry",[{}])[0].get("changes",[{}])[0].get("value",{}).get("messages",[]):
             sender = msg["from"]
-            text = msg["text"]["body"].strip()
+            text = msg["text"]["body"].strip().lower()
 
-            # Première fois → envoi menu
-            if sender not in user_language:
-                user_language[sender] = None
-                httpx.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages",
-                    headers={"Authorization": f"Bearer {TOKEN}"},
-                    json={"messaging_product":"whatsapp","to":sender,"type":"text","text":{"body":WELCOME_MENU}}
-                )
+            # Anti-spam 25 secondes
+            now = time.time()
+            if sender in last_used and now - last_used[sender] < 25:
                 continue
+            last_used[sender] = now
 
-            # Choix de langue
-            if user_language[sender] is None:
-                if text in ["1", "fr", "français", "francais", "french"]:
-                    user_language[sender] = "fr"
-                    reply = "Parfait ! 😊 Je parle maintenant en français.\nQue puis-je pour vous ?"
-                elif text in ["2", "en", "english", "anglais"]:
-                    user_language[sender] = "en"
-                    reply = "Perfect! 😊 I will now speak in English.\nHow can I help you?"
-                elif text in ["3", "ha", "hausa", "hausaa"]:
-                    user_language[sender] = "ha"
-                    reply = "Sannu da zuwa! 😊 Yanzu zan yi magana da Hausa.\nMenene zan iya taimaka maka?"
-                else:
-                    reply = "Choisissez 1, 2 ou 3 svp / Zaɓi 1, 2 ko 3 / Please choose 1, 2 or 3"
-                    httpx.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages",
-                        headers={"Authorization": f"Bearer {TOKEN}"},
-                        json={"messaging_product":"whatsapp","to":sender,"type":"text","text":{"body":reply}}
-                    )
-                    continue
+            # === CHANGEMENT DE LANGUE À TOUT MOMENT ===
+            if text in ["1", "fr", "français", "francais", "french"]:
+                user_language[sender] = "fr"
+                reply = "Parfait ! 😊 Je parle maintenant en français.\nComment puis-je vous aider ?"
+            elif text in ["2", "en", "english", "anglais"]:
+                user_language[sender] = "en"
+                reply = "Perfect! 😊 I will now speak in English.\nHow can I help you?"
+            elif text in ["3", "ha", "hausa"]:
+                user_language[sender] = "ha"
+                reply = "Sannu! 😊 Yanzu zan yi magana da Hausa na Kano.\nMenene zan iya taimaka maka?"
+            elif text in ["menu", "langue", "language", "change", "changer", "change language"]:
+                user_language[sender] = None
+                reply = WELCOME_MENU
             else:
-                langue = user_language[sender]
-                reply = await ask_grok(text, langue)
+                # Premier contact → menu
+                if sender not in user_language or user_language[sender] is None:
+                    user_language[sender] = None
+                    reply = WELCOME_MENU
+                else:
+                    # Réponse normale dans la langue choisie
+                    langue = user_language[sender]
+                    reply = await ask_grok(msg["text"]["body"], langue)
 
-            reply += DISCLAIMER[langue]
+            # Ajoute le disclaimer
+            langue_actuelle = user_language.get(sender, "en")
+            reply += DISCLAIMER.get(langue_actuelle, DISCLAIMER["en"])
 
-            httpx.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages",
+            # Envoi réponse
+            httpx.post(
+                f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages",
                 headers={"Authorization": f"Bearer {TOKEN}"},
-                json={"messaging_product":"whatsapp","to":sender,"type":"text","text":{"body":reply}}
+                json={
+                    "messaging_product": "whatsapp",
+                    "to": sender,
+                    "type": "text",
+                    "text": {"body": reply}
+                }
             )
     except Exception as e:
         print("Erreur:", e)
-    return {"status":"ok"}
+    return {"status": "ok"}
