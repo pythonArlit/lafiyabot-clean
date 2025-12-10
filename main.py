@@ -32,7 +32,7 @@ Choisissez votre langue / Zaɓi harshenku / Choose your language:
 
 🇫🇷 Tapez *1* pour Français
 🇬🇧 Tapez *2* pour English
-🇳🇪 Tapez *3* pour Hausa
+🇳🇬 Tapez *3* pour Hausa
 
 (ou tapez 1, 2, 3 à tout moment pour changer)"""
 
@@ -98,3 +98,4 @@ async def receive(r: Request):
     except Exception as e:
         print("Erreur:", e)
     return {"status":"ok"}
+
