@@ -10,7 +10,7 @@ app = FastAPI()
 TOKEN = os.getenv("TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 GROK_KEY = os.getenv("GROK_KEY")
-SHEET_ID = "1ABC123..."  # ← colle l'ID de ton Google Sheet (entre /d/ et /edit)
+SHEET_ID = "1s37oWfjfkhA6_AiBs2pEByygx-5CfxrNqezw1Lv7f1I"  # ← colle l'ID de ton Google Sheet (entre /d/ et /edit)
 
 # Config Google Sheets (tu n'as pas besoin de clé – on utilise une méthode simple)
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -165,3 +165,4 @@ async def receive(r: Request):
     except Exception as e:
         print("Erreur:", e)
     return {"status": "ok"}
+
